@@ -1,0 +1,155 @@
+ESP32 Lettuce Smart Farm공유사상추 스마트팜을 만드려고 하는데 ! ESP32로! 각각 연동되는 코드 짜줄래??  뭔말인지알지? 상추 재배에 최적화된 환경 맞춰서편집네, 상추 스마트팜을 ESP32로 만드는 프로젝트네요! 상추 재배에 최적화된 환경 제어 시스템을 구현해드릴게요.상추 스마트팜 ESP32 제어 시스템코드 #include <WiFi.h>
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+// WiFi 설정
+const char* ssid = "YOUR_WIFI_SSID";
+const char*상추 스마트팜 ESP32 제어 시스템을 만들어드렸습니다!
+주요 기능:
+🥬 상추 최적 환경 제어
+
+온도: 18-22°C (히터/팬 자동 제어)
+습도: 60-70% (모니터링)
+토양 습도: 70-80% (자동 급수)
+pH: 6.0-6.5 (모니터링)
+TDS: 800-1200 ppm (영양분 농도)
+조명: 14시간 일조 (LED 자동 제어)
+
+📱 스마트 기능
+
+WiFi 연결
+Blynk 앱으로 원격 모니터링/제어
+LCD 실시간 표시
+자동 경고 알림
+
+🔧 필요한 부품:
+
+ESP32 개발보드
+DHT22 온습도 센서
+토양 습도 센서
+DS18B20 수온 센서
+pH 센서
+TDS 센서
+조도 센서
+4채널 릴레이 모듈
+워터펌프
+팬, 히터
+LED 스트립
+I2C LCD
+
+설정 방법:
+
+라이브러리 설치 (DHT, OneWire, DallasTemperature, LiquidCrystal_I2C, Blynk)
+WiFi 정보와 Blynk 토큰 입력
+센서들을 지정된 핀에 연결
+코드 업로드 후 Blynk 앱 설정
+
+더 구체적인 연결도나 특정 기능 수정이 필요하시면 말씀해 주세요!재시도사수경재배방식이라 스펀지쓸거고  정적관수방법 쓸거야! 고려해서 수정해주라! 아편집아! 수경재배 방식이고 정적관수 방법을 쓰시는군요! 스펀지 배지 사용하는 DWC(Deep Water Culture) 방식으로 수정해드릴게요!상추 스마트팜 ESP32 제어 시스템코드 ∙ 버전 2 #include <WiFi.h>
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+// WiFi 설정
+const char* ssid = "YOUR_WIFI_SSID";
+const char*수경재배 DWC 방식에 맞게 완전히 수정했습니다! 🌱
+수경재배 특화 기능:
+💧 정적관수 시스템
+
+30분마다 5분간 양액 순환
+양액 탱크 → 재배판 → 다시 탱크로 순환
+수위 모니터링 (30~90% 유지)
+
+🫧 산소 공급 시스템
+
+에어펌프 24시간 가동 (뿌리 건강)
+양액에 산소 공급으로 뿌리썩음 방지
+
+🧪 수경재배 최적화
+
+수온: 16-20°C (뿌리 건강 핵심)
+pH: 5.5-6.5 (수경재배 최적)
+TDS: 800-1200 ppm (양액 농도)
+공기 온도: 18-22°C
+
+필요 부품 (수경재배용):
+
+에어펌프 + 에어스톤
+순환펌프 (정적관수용)
+수위센서
+양액 탱크
+스펀지 or 암면 (배지)
+플라스틱 재배판
+네트포트
+
+핵심 개선점:
+
+토양 센서 제거 → 수위 센서 추가
+일반 펌프 → 순환펌프 + 에어펌프
+수경재배 전용 pH/TDS 범위 적용
+정적관수 타이머 시스템 구현
+수온 모니터링 강화
+
+스펀지 배지 크기나 순환 주기 조절이 필요하시면 말씀해 주세요!재시도사근데 아래는 비워놨어 스펀지쓰고 그러면 뿌리가 물에 안닿아도 된다하던데? LED랑 팬도 낮 밤 표현과 환기, 더우면 팬 돌리기 식으로 자동화 할거고, 물이랑 영양제랑 2개 호스 쓸거고 그 호스는 워터펌프로 각각 끌어올거야! 수분 판단은 어떻게 하지편집아! NFT(Nutrient Film Technique) 방식이나 DFT(Deep Flow Technique) 방식이네요! 스펀지 배지로 뿌리가 공중에 있고, 아래쪽만 양액이 흐르는 방식이군요. 수정해드릴게요!상추 스마트팜 ESP32 제어 시스템코드 ∙ 버전 3 #include <WiFi.h>
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <TimeLib.h>
+#include <WiFiUdp.h>
+#include <NTPClien완벽한 NFT 방식 수경재배 시스템으로 수정했습니다! 🌱
+핵심 개선사항:
+💧 2개 호스 급수 시스템
+
+물 펌프: 30초간 물 공급
+영양제 펌프: 10초간 영양제 공급
+각각 독립적인 탱크와 펌프
+
+🧽 스펀지 습도 기반 급수
+
+스펀지 습도 센서로 수분 판단
+30% 이하: 급수 시작
+70% 이상: 급수 중지
+1시간마다 정기 체크
+
+🌅 낮/밤 자동화
+
+낮 시간 (6시-20시)
+
+자연광 부족시에만 LED 켜기
+더우면 (25°C 이상) 팬 자동 가동
+온도 높으면 추가 환기
+
+
+밤 시간 (20시-6시)
+
+LED 완전 소등
+습도 높으면 제습 환기
+22시, 6시 정시 환기
+
+
+
+🔧 스펀지 습도 센서 연결법:
+저항식 습도 센서 → A6 핀
+- 건조할 때: 저항 높음 → 낮은 전압
+- 습할 때: 저항 낮음 → 높은 전압
+시스템 특징:
+
+뿌리가 공중에 떠있어도 OK
+스펀지만 촉촉하게 유지
+2개 탱크 독립 관리
+실시간 낮/밤 판단
+온도별 자동 팬 제어
+
+이제 스펀지에 씨앗 심고 뿌리 내리면 자동으로 관리될 거예요! 🎯
