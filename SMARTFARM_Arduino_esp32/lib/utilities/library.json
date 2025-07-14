@@ -1,0 +1,63 @@
+{
+  "name": "SmartFarmUtilities",
+  "version": "1.0.0",
+  "description": "스마트팜 시스템을 위한 유틸리티 라이브러리",
+  "keywords": [
+    "smart farm",
+    "agriculture",
+    "iot",
+    "arduino",
+    "utilities",
+    "environment control"
+  ],
+  "authors": [
+    {
+      "name": "Smart Farm Team",
+      "email": "team@smartfarm.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/smartfarm/utilities",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smartfarm/utilities.git"
+  },
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "atmelavr",
+    "espressif32",
+    "espressif8266"
+  ],
+  "headers": [
+    "utilities.h"
+  ],
+  "examples": [
+    {
+      "name": "Basic Usage",
+      "base": "examples/basic_usage",
+      "files": [
+        "basic_usage.ino"
+      ]
+    },
+    {
+      "name": "Environmental Monitoring",
+      "base": "examples/environmental_monitoring",
+      "files": [
+        "environmental_monitoring.ino"
+      ]
+    }
+  ],
+  "dependencies": {
+    "EEPROM": "*"
+  },
+  "export": {
+    "include": [
+      "src/*",
+      "examples/*",
+      "README.md"
+    ]
+  }
+}

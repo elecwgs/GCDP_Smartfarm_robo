@@ -1,0 +1,560 @@
+#include <Arduino.h>
+#include <SoftwareSerial.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <Stepper.h>
+#include <RTClib.h>  // RTC 라이브러리 추가
+
+// ========== 핀 정의 ==========
+// DHT22 온습도 센서
+#define DHT_PIN 2
+#define DHT_TYPE DHT22
+
+// 조도 센서 (LDR)
+#define LIGHT_SENSOR_PIN A1
+
+// 워터펌프 (DC380 펌프모터 2개)
+#define PUMP1_PIN 3
+#define PUMP2_PIN 4
+
+// 팬 4개 (냉각/순환용)
+#define FAN1_PIN 5
+#define FAN2_PIN 6
+#define FAN3_PIN 7
+#define FAN4_PIN 8
+
+// LED 조명 (성장등)
+#define LED_PIN 9
+
+// 스텝모터 (CNC 리니어 가이드) - 드라이버 연결
+#define STEP_PIN 10
+#define DIR_PIN 11
+#define ENABLE_PIN 12
+
+// ESP32 통신 (유선)
+SoftwareSerial esp32Serial(A2, A3); // RX, TX
+
+// 센서 및 RTC 객체
+DHT dht(DHT_PIN, DHT_TYPE);
+Stepper stepper(200, STEP_PIN, DIR_PIN); // 200스텝/회전
+RTC_DS1307 rtc;  // RTC 객체
+
+// ========== 상추 재배 최적 환경 설정 ==========
+const float OPTIMAL_TEMP_MIN = 15.0;    // 최적 온도 하한
+const float OPTIMAL_TEMP_MAX = 20.0;    // 최적 온도 상한
+const float OPTIMAL_HUMIDITY_MIN = 60.0; // 최적 습도 하한
+const float OPTIMAL_HUMIDITY_MAX = 80.0; // 최적 습도 상한
+const int OPTIMAL_LIGHT_MIN = 300;       // 조도 하한 (0-1023)
+const int OPTIMAL_LIGHT_MAX = 600;       // 조도 상한
+
+// ========== 시간 기반 제어 설정 ==========
+// LED 조명 시간 (24시간 기준)
+const int LED_ON_HOUR = 6;    // 오전 6시
+const int LED_OFF_HOUR = 22;  // 오후 10시
+
+// 물주기 시간 (매일 2번: 오전 8시, 오후 6시)
+const int WATERING_HOUR_1 = 8;   // 오전 8시
+const int WATERING_HOUR_2 = 18;  // 오후 6시
+const int WATERING_MINUTE = 0;   // 정각
+const unsigned long WATERING_DURATION = 30000UL; // 30초간 물주기
+
+// 선형 액추에이터 이동 시간 (매일 오전 10시, 오후 3시)
+const int LINEAR_MOVE_HOUR_1 = 10;  // 오전 10시
+const int LINEAR_MOVE_HOUR_2 = 15;  // 오후 3시
+const int LINEAR_MOVE_MINUTE = 0;   // 정각
+
+// ========== 전역 변수 ==========
+float temperature = 0;
+float humidity = 0;
+int lightLevel = 0;
+bool pumpStatus = false;
+bool fanStatus = false;
+bool ledStatus = false;
+int linearPosition = 0;
+
+// RTC 시간 관리 변수
+DateTime now;
+bool wateringActive = false;
+unsigned long wateringStartTime = 0;
+bool todayWatering1Done = false;
+bool todayWatering2Done = false;
+bool todayLinearMove1Done = false;
+bool todayLinearMove2Done = false;
+int lastDay = -1;  // 날짜 변경 감지용
+
+// 센서 및 통신 타이머
+unsigned long lastSensorRead = 0;
+unsigned long lastESP32Send = 0;
+unsigned long lastRTCRead = 0;
+const unsigned long SENSOR_INTERVAL = 2000;      // 2초마다 센서 읽기
+const unsigned long ESP32_SEND_INTERVAL = 10000; // 10초마다 ESP32로 전송
+const unsigned long RTC_READ_INTERVAL = 1000;    // 1초마다 RTC 읽기
+
+// ========== 함수 선언 ==========
+void initializeRTC();
+void readRTC();
+void readSensors();
+void timeBasedControl();
+void environmentalControl();
+void sendToESP32();
+void activatePumps(bool activate);
+void activateFans(bool activate);
+void activateLED(bool activate);
+void moveLinearActuator();
+void scheduledWatering();
+void scheduledLinearMove();
+void emergencyStop();
+void printSystemStatus();
+void resetDailyTasks();
+bool isTimeForLED();
+bool isTimeToWater();
+bool isTimeToMovePlant();
+String formatTime(DateTime dt);
+String formatDate(DateTime dt);
+
+void setup() {
+  Serial.begin(9600);
+  esp32Serial.begin(9600);
+  
+  // I2C 통신 초기화 (RTC용)
+  Wire.begin();
+  
+  // RTC 초기화
+  initializeRTC();
+  
+  // 센서 초기화
+  dht.begin();
+  
+  // 핀 모드 설정
+  pinMode(PUMP1_PIN, OUTPUT);
+  pinMode(PUMP2_PIN, OUTPUT);
+  pinMode(FAN1_PIN, OUTPUT);
+  pinMode(FAN2_PIN, OUTPUT);
+  pinMode(FAN3_PIN, OUTPUT);
+  pinMode(FAN4_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(ENABLE_PIN, OUTPUT);
+  
+  // 초기 상태 설정
+  digitalWrite(PUMP1_PIN, LOW);
+  digitalWrite(PUMP2_PIN, LOW);
+  digitalWrite(FAN1_PIN, LOW);
+  digitalWrite(FAN2_PIN, LOW);
+  digitalWrite(FAN3_PIN, LOW);
+  digitalWrite(FAN4_PIN, LOW);
+  digitalWrite(LED_PIN, LOW);
+  digitalWrite(ENABLE_PIN, HIGH); // 스텝모터 활성화
+  
+  // 스텝모터 설정
+  stepper.setSpeed(60); // RPM
+  
+  // 시작 메시지
+  Serial.println("========================================");
+  Serial.println("스마트팜 상추재배 시스템 시작 (RTC 모듈)");
+  Serial.println("시간 기반 + 환경 기반 제어 모드");
+  Serial.println("========================================");
+  Serial.println("제어 스케줄:");
+  Serial.println("- LED 조명: 06:00-22:00 (16시간)");
+  Serial.println("- 물주기: 08:00, 18:00 (30초간)");
+  Serial.println("- 식물이동: 10:00, 15:00");
+  Serial.println("- 환경제어: 실시간 모니터링");
+  Serial.println("========================================");
+  
+  // 현재 시간 표시
+  readRTC();
+  Serial.print("현재 시간: ");
+  Serial.println(formatTime(now));
+  Serial.print("현재 날짜: ");
+  Serial.println(formatDate(now));
+  Serial.println("========================================");
+  
+  delay(2000);
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+  
+  // RTC 시간 읽기
+  if (currentTime - lastRTCRead >= RTC_READ_INTERVAL) {
+    readRTC();
+    lastRTCRead = currentTime;
+  }
+  
+  // 센서 데이터 읽기
+  if (currentTime - lastSensorRead >= SENSOR_INTERVAL) {
+    readSensors();
+    timeBasedControl();      // 시간 기반 제어 먼저
+    environmentalControl();  // 환경 기반 제어 후
+    printSystemStatus();
+    lastSensorRead = currentTime;
+  }
+  
+  // ESP32로 데이터 전송
+  if (currentTime - lastESP32Send >= ESP32_SEND_INTERVAL) {
+    sendToESP32();
+    lastESP32Send = currentTime;
+  }
+  
+  // 물주기 지속 시간 체크
+  if (wateringActive && (currentTime - wateringStartTime >= WATERING_DURATION)) {
+    activatePumps(false);
+    wateringActive = false;
+    Serial.println("⏰ 정기 물주기 완료");
+  }
+  
+  delay(100);
+}
+
+void initializeRTC() {
+  if (!rtc.begin()) {
+    Serial.println("❌ RTC 모듈을 찾을 수 없습니다!");
+    while (1);
+  }
+  
+  // RTC가 작동 중이 아니면 현재 시간으로 설정
+  if (!rtc.isrunning()) {
+    Serial.println("⚠️ RTC가 작동하지 않습니다. 컴파일 시간으로 설정합니다.");
+    // 아래 줄의 주석을 해제하면 컴파일 시간으로 RTC 설정
+    // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    
+    // 또는 수동으로 시간 설정 (년, 월, 일, 시, 분, 초)
+    // rtc.adjust(DateTime(2025, 7, 14, 12, 0, 0));  // 2025년 7월 14일 12시 0분 0초
+  }
+  
+  Serial.println("✅ RTC 모듈 초기화 완료");
+}
+
+void readRTC() {
+  now = rtc.now();
+  
+  // 날짜가 변경되었으면 일일 작업 리셋
+  if (lastDay != now.day()) {
+    resetDailyTasks();
+    lastDay = now.day();
+    Serial.println("📅 새로운 날 - 일일 작업 리셋");
+  }
+}
+
+void resetDailyTasks() {
+  todayWatering1Done = false;
+  todayWatering2Done = false;
+  todayLinearMove1Done = false;
+  todayLinearMove2Done = false;
+}
+
+void readSensors() {
+  // 온습도 센서 읽기
+  temperature = dht.readTemperature();
+  humidity = dht.readHumidity();
+  
+  // 조도 센서 읽기
+  lightLevel = analogRead(LIGHT_SENSOR_PIN);
+  
+  // 센서 오류 체크
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("❌ DHT 센서 읽기 오류!");
+    temperature = 0;
+    humidity = 0;
+  }
+}
+
+void timeBasedControl() {
+  // ========== 시간 기반 LED 제어 ==========
+  if (isTimeForLED()) {
+    if (!ledStatus) {
+      activateLED(true);
+      Serial.println("⏰ 정기 LED 켜기 (06:00-22:00)");
+    }
+  } else {
+    if (ledStatus) {
+      activateLED(false);
+      Serial.println("⏰ 정기 LED 끄기 (야간 모드)");
+    }
+  }
+  
+  // ========== 정기 물주기 제어 ==========
+  if (isTimeToWater()) {
+    scheduledWatering();
+  }
+  
+  // ========== 정기 식물 이동 제어 ==========
+  if (isTimeToMovePlant()) {
+    scheduledLinearMove();
+  }
+}
+
+void environmentalControl() {
+  // ========== 온도 기반 팬 제어 ==========
+  if (temperature > OPTIMAL_TEMP_MAX) {
+    if (!fanStatus) {
+      activateFans(true);
+      Serial.println("🌡️ 고온 감지 - 팬 가동");
+    }
+  } else if (temperature < OPTIMAL_TEMP_MIN) {
+    if (fanStatus) {
+      activateFans(false);
+      Serial.println("🌡️ 저온 감지 - 팬 정지 (보온)");
+    }
+  }
+  
+  // ========== 습도 기반 추가 제어 ==========
+  if (humidity < OPTIMAL_HUMIDITY_MIN) {
+    // 습도가 낮으면 추가 물주기 (정기 물주기와 별개)
+    if (!wateringActive && !pumpStatus) {
+      Serial.println("💧 저습도 감지 - 추가 물주기");
+      activatePumps(true);
+      // 짧은 시간 추가 물주기
+      delay(5000); // 5초
+      activatePumps(false);
+    }
+  } else if (humidity > OPTIMAL_HUMIDITY_MAX) {
+    // 습도가 높으면 팬 가동으로 제습
+    if (!fanStatus) {
+      activateFans(true);
+      Serial.println("💧 고습도 감지 - 제습용 팬 가동");
+    }
+  }
+  
+  // ========== 조도 기반 추가 LED 제어 ==========
+  // 낮 시간대에도 조도가 부족하면 LED 강제 켜기
+  if (isTimeForLED() && lightLevel < OPTIMAL_LIGHT_MIN) {
+    if (!ledStatus) {
+      activateLED(true);
+      Serial.println("☀️ 조도 부족 - LED 강제 켜기");
+    }
+  }
+  // 밤 시간대에도 조도가 과도하면 LED 끄기 (절전)
+  else if (!isTimeForLED() && lightLevel > OPTIMAL_LIGHT_MAX) {
+    if (ledStatus) {
+      activateLED(false);
+      Serial.println("🌙 야간 과도 조도 - LED 끄기");
+    }
+  }
+}
+
+bool isTimeForLED() {
+  int currentHour = now.hour();
+  return (currentHour >= LED_ON_HOUR && currentHour < LED_OFF_HOUR);
+}
+
+bool isTimeToWater() {
+  int currentHour = now.hour();
+  int currentMinute = now.minute();
+  
+  // 오전 8시 물주기
+  if (currentHour == WATERING_HOUR_1 && currentMinute == WATERING_MINUTE && !todayWatering1Done) {
+    todayWatering1Done = true;
+    return true;
+  }
+  
+  // 오후 6시 물주기
+  if (currentHour == WATERING_HOUR_2 && currentMinute == WATERING_MINUTE && !todayWatering2Done) {
+    todayWatering2Done = true;
+    return true;
+  }
+  
+  return false;
+}
+
+bool isTimeToMovePlant() {
+  int currentHour = now.hour();
+  int currentMinute = now.minute();
+  
+  // 오전 10시 이동
+  if (currentHour == LINEAR_MOVE_HOUR_1 && currentMinute == LINEAR_MOVE_MINUTE && !todayLinearMove1Done) {
+    todayLinearMove1Done = true;
+    return true;
+  }
+  
+  // 오후 3시 이동
+  if (currentHour == LINEAR_MOVE_HOUR_2 && currentMinute == LINEAR_MOVE_MINUTE && !todayLinearMove2Done) {
+    todayLinearMove2Done = true;
+    return true;
+  }
+  
+  return false;
+}
+
+void scheduledWatering() {
+  if (!wateringActive) {
+    Serial.println("⏰ 정기 물주기 시작");
+    activatePumps(true);
+    wateringActive = true;
+    wateringStartTime = millis();
+  }
+}
+
+void scheduledLinearMove() {
+  Serial.println("⏰ 정기 식물 위치 조정 시작");
+  moveLinearActuator();
+}
+
+void activatePumps(bool activate) {
+  if (activate) {
+    digitalWrite(PUMP1_PIN, HIGH);
+    digitalWrite(PUMP2_PIN, HIGH);
+    pumpStatus = true;
+  } else {
+    digitalWrite(PUMP1_PIN, LOW);
+    digitalWrite(PUMP2_PIN, LOW);
+    pumpStatus = false;
+  }
+}
+
+void activateFans(bool activate) {
+  if (activate) {
+    digitalWrite(FAN1_PIN, HIGH);
+    digitalWrite(FAN2_PIN, HIGH);
+    digitalWrite(FAN3_PIN, HIGH);
+    digitalWrite(FAN4_PIN, HIGH);
+    fanStatus = true;
+  } else {
+    digitalWrite(FAN1_PIN, LOW);
+    digitalWrite(FAN2_PIN, LOW);
+    digitalWrite(FAN3_PIN, LOW);
+    digitalWrite(FAN4_PIN, LOW);
+    fanStatus = false;
+  }
+}
+
+void activateLED(bool activate) {
+  if (activate) {
+    digitalWrite(LED_PIN, HIGH);
+    ledStatus = true;
+  } else {
+    digitalWrite(LED_PIN, LOW);
+    ledStatus = false;
+  }
+}
+
+void moveLinearActuator() {
+  Serial.println("🔄 선형 액추에이터 이동 중...");
+  
+  // 앞으로 100스텝 이동
+  for (int i = 0; i < 100; i++) {
+    stepper.step(1);
+    delay(10);
+  }
+  
+  delay(3000); // 3초 대기
+  
+  // 뒤로 100스텝 이동 (원위치)
+  for (int i = 0; i < 100; i++) {
+    stepper.step(-1);
+    delay(10);
+  }
+  
+  Serial.println("✅ 선형 액추에이터 이동 완료");
+}
+
+void printSystemStatus() {
+  Serial.println("\n========== 시스템 상태 ==========");
+  Serial.print("현재 시간: ");
+  Serial.println(formatTime(now));
+  Serial.print("현재 날짜: ");
+  Serial.println(formatDate(now));
+  
+  Serial.print("온도: ");
+  Serial.print(temperature);
+  Serial.print("°C (최적: ");
+  Serial.print(OPTIMAL_TEMP_MIN);
+  Serial.print("-");
+  Serial.print(OPTIMAL_TEMP_MAX);
+  Serial.println("°C)");
+  
+  Serial.print("습도: ");
+  Serial.print(humidity);
+  Serial.print("% (최적: ");
+  Serial.print(OPTIMAL_HUMIDITY_MIN);
+  Serial.print("-");
+  Serial.print(OPTIMAL_HUMIDITY_MAX);
+  Serial.println("%)");
+  
+  Serial.print("조도: ");
+  Serial.print(lightLevel);
+  Serial.print(" (최적: ");
+  Serial.print(OPTIMAL_LIGHT_MIN);
+  Serial.print("-");
+  Serial.print(OPTIMAL_LIGHT_MAX);
+  Serial.println(")");
+  
+  Serial.print("제어 상태 - 펌프: ");
+  Serial.print(pumpStatus ? "ON" : "OFF");
+  Serial.print(", 팬: ");
+  Serial.print(fanStatus ? "ON" : "OFF");
+  Serial.print(", LED: ");
+  Serial.println(ledStatus ? "ON" : "OFF");
+  
+  // 오늘 완료된 작업 표시
+  Serial.print("오늘 완료된 작업 - 물주기1: ");
+  Serial.print(todayWatering1Done ? "완료" : "대기");
+  Serial.print(", 물주기2: ");
+  Serial.print(todayWatering2Done ? "완료" : "대기");
+  Serial.print(", 식물이동1: ");
+  Serial.print(todayLinearMove1Done ? "완료" : "대기");
+  Serial.print(", 식물이동2: ");
+  Serial.println(todayLinearMove2Done ? "완료" : "대기");
+  
+  if (wateringActive) {
+    Serial.println("💧 물주기 진행 중...");
+  }
+  
+  Serial.println("================================\n");
+}
+
+void sendToESP32() {
+  // JSON 형태로 ESP32에 데이터 전송
+  String jsonData = "{";
+  jsonData += "\"temperature\":" + String(temperature, 2) + ",";
+  jsonData += "\"humidity\":" + String(humidity, 2) + ",";
+  jsonData += "\"lightLevel\":" + String(lightLevel) + ",";
+  jsonData += "\"pumpStatus\":" + String(pumpStatus ? "true" : "false") + ",";
+  jsonData += "\"fanStatus\":" + String(fanStatus ? "true" : "false") + ",";
+  jsonData += "\"ledStatus\":" + String(ledStatus ? "true" : "false") + ",";
+  jsonData += "\"wateringActive\":" + String(wateringActive ? "true" : "false") + ",";
+  jsonData += "\"currentTime\":\"" + formatTime(now) + "\",";
+  jsonData += "\"currentDate\":\"" + formatDate(now) + "\",";
+  jsonData += "\"watering1Done\":" + String(todayWatering1Done ? "true" : "false") + ",";
+  jsonData += "\"watering2Done\":" + String(todayWatering2Done ? "true" : "false") + ",";
+  jsonData += "\"linearMove1Done\":" + String(todayLinearMove1Done ? "true" : "false") + ",";
+  jsonData += "\"linearMove2Done\":" + String(todayLinearMove2Done ? "true" : "false") + ",";
+  jsonData += "\"timestamp\":" + String(now.unixtime());
+  jsonData += "}";
+  
+  // ESP32로 전송
+  esp32Serial.println(jsonData);
+  
+  Serial.println("📡 ESP32로 데이터 전송 완료");
+}
+
+String formatTime(DateTime dt) {
+  String timeString = "";
+  if (dt.hour() < 10) timeString += "0";
+  timeString += String(dt.hour()) + ":";
+  if (dt.minute() < 10) timeString += "0";
+  timeString += String(dt.minute()) + ":";
+  if (dt.second() < 10) timeString += "0";
+  timeString += String(dt.second());
+  return timeString;
+}
+
+String formatDate(DateTime dt) {
+  String dateString = "";
+  dateString += String(dt.year()) + "-";
+  if (dt.month() < 10) dateString += "0";
+  dateString += String(dt.month()) + "-";
+  if (dt.day() < 10) dateString += "0";
+  dateString += String(dt.day());
+  return dateString;
+}
+
+void emergencyStop() {
+  activatePumps(false);
+  activateFans(false);
+  activateLED(false);
+  digitalWrite(ENABLE_PIN, LOW); // 스텝모터 비활성화
+  
+  Serial.println("🚨 비상 정지 작동!");
+  Serial.println("모든 시스템 정지됨");
+
+}

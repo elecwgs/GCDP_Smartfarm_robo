@@ -1,0 +1,211 @@
+{
+  "system": {
+    "name": "스마트팜 상추재배 시스템",
+    "version": "2.0.0",
+    "build_date": "2025-07-14",
+    "hardware_version": "v1.2",
+    "author": "Smart Farm Team"
+  },
+  "environment": {
+    "temperature": {
+      "min": 15.0,
+      "max": 20.0,
+      "unit": "celsius",
+      "tolerance": 2.0,
+      "critical_low": 5.0,
+      "critical_high": 35.0
+    },
+    "humidity": {
+      "min": 60.0,
+      "max": 80.0,
+      "unit": "percent",
+      "tolerance": 5.0,
+      "critical_low": 30.0,
+      "critical_high": 95.0
+    },
+    "light": {
+      "min": 300,
+      "max": 600,
+      "unit": "analog_reading",
+      "tolerance": 50,
+      "critical_low": 100,
+      "critical_high": 900
+    }
+  },
+  "schedule": {
+    "led_lighting": {
+      "on_hour": 6,
+      "off_hour": 22,
+      "daily_hours": 16,
+      "auto_adjust": true
+    },
+    "watering": {
+      "times": [
+        {
+          "hour": 8,
+          "minute": 0,
+          "duration_seconds": 30,
+          "description": "아침 물주기"
+        },
+        {
+          "hour": 18,
+          "minute": 0,
+          "duration_seconds": 30,
+          "description": "저녁 물주기"
+        }
+      ],
+      "emergency_watering": {
+        "humidity_threshold": 50.0,
+        "duration_seconds": 5,
+        "cooldown_minutes": 30
+      }
+    },
+    "plant_movement": {
+      "times": [
+        {
+          "hour": 10,
+          "minute": 0,
+          "description": "오전 위치 조정"
+        },
+        {
+          "hour": 15,
+          "minute": 0,
+          "description": "오후 위치 조정"
+        }
+      ],
+      "movement_steps": 100,
+      "rest_duration_seconds": 3
+    }
+  },
+  "hardware": {
+    "pins": {
+      "dht_sensor": 2,
+      "light_sensor": "A1",
+      "pump1": 3,
+      "pump2": 4,
+      "fan1": 5,
+      "fan2": 6,
+      "fan3": 7,
+      "fan4": 8,
+      "led_grow": 9,
+      "stepper_step": 10,
+      "stepper_dir": 11,
+      "stepper_enable": 12,
+      "esp32_rx": "A2",
+      "esp32_tx": "A3",
+      "status_led": 13
+    },
+    "stepper_motor": {
+      "steps_per_revolution": 200,
+      "speed_rpm": 60,
+      "max_steps": 1000,
+      "acceleration": true
+    },
+    "communication": {
+      "serial_baud": 9600,
+      "esp32_baud": 9600,
+      "timeout_ms": 5000
+    }
+  },
+  "monitoring": {
+    "sensor_read_interval_ms": 2000,
+    "esp32_send_interval_ms": 10000,
+    "rtc_read_interval_ms": 1000,
+    "status_print_interval_ms": 5000,
+    "watchdog_timeout_ms": 30000
+  },
+  "safety": {
+    "emergency_stop": {
+      "temperature_max": 35.0,
+      "humidity_max": 95.0,
+      "continuous_error_limit": 5
+    },
+    "auto_recovery": {
+      "enabled": true,
+      "retry_attempts": 3,
+      "retry_delay_ms": 5000
+    },
+    "backup_systems": {
+      "manual_override": true,
+      "fail_safe_mode": true
+    }
+  },
+  "notifications": {
+    "enabled": true,
+    "priorities": {
+      "info": 1,
+      "warning": 2,
+      "error": 3,
+      "critical": 4
+    },
+    "channels": {
+      "serial": true,
+      "esp32": true,
+      "led_status": true
+    }
+  },
+  "data_logging": {
+    "enabled": true,
+    "log_sensors": true,
+    "log_actuators": true,
+    "log_errors": true,
+    "retention_days": 7,
+    "backup_to_eeprom": true
+  },
+  "maintenance": {
+    "calibration_reminder_days": 30,
+    "sensor_cleaning_days": 7,
+    "system_restart_hours": 168,
+    "health_check_interval_hours": 24
+  },
+  "features": {
+    "adaptive_control": true,
+    "learning_mode": false,
+    "remote_control": true,
+    "auto_backup": true,
+    "power_management": true,
+    "seasonal_adjustment": false
+  },
+  "wifi": {
+    "ssid": "SmartFarm_Network",
+    "password": "farm2025!",
+    "static_ip": false,
+    "backup_networks": [
+      {
+        "ssid": "Backup_Network",
+        "password": "backup123"
+      }
+    ]
+  },
+  "api": {
+    "endpoints": {
+      "status": "/api/status",
+      "sensors": "/api/sensors",
+      "control": "/api/control",
+      "config": "/api/config",
+      "logs": "/api/logs"
+    },
+    "authentication": {
+      "enabled": true,
+      "api_key": "sf_2025_secure_key",
+      "session_timeout_minutes": 30
+    }
+  },
+  "user_preferences": {
+    "units": {
+      "temperature": "celsius",
+      "time_format": "24h",
+      "date_format": "YYYY-MM-DD"
+    },
+    "display": {
+      "language": "ko",
+      "timezone": "Asia/Seoul",
+      "decimal_places": 2
+    },
+    "alerts": {
+      "sound_enabled": false,
+      "vibration_enabled": false,
+      "email_notifications": false
+    }
+  }
+}

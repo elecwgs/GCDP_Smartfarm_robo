@@ -1,0 +1,73 @@
+{
+  "name": "CustomRTClib",
+  "version": "1.0.0",
+  "description": "Custom Real-Time Clock library for DS1307 and compatible RTC modules",
+  "keywords": [
+    "rtc",
+    "real-time-clock",
+    "ds1307",
+    "time",
+    "date",
+    "i2c",
+    "arduino"
+  ],
+  "authors": [
+    {
+      "name": "Smart Farm Team",
+      "email": "team@smartfarm.dev",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/smartfarm/custom-rtclib",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smartfarm/custom-rtclib.git"
+  },
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "atmelavr",
+    "espressif32",
+    "espressif8266",
+    "atmelsam",
+    "ststm32"
+  ],
+  "headers": [
+    "RTClib.h"
+  ],
+  "dependencies": {
+    "Wire": "*"
+  },
+  "examples": [
+    {
+      "name": "Basic Usage",
+      "base": "examples/basic_usage",
+      "files": [
+        "basic_usage.ino"
+      ]
+    },
+    {
+      "name": "Set Time",
+      "base": "examples/set_time",
+      "files": [
+        "set_time.ino"
+      ]
+    },
+    {
+      "name": "Advanced Features",
+      "base": "examples/advanced_features",
+      "files": [
+        "advanced_features.ino"
+      ]
+    }
+  ],
+  "export": {
+    "include": [
+      "src/*",
+      "examples/*",
+      "README.md"
+    ]
+  }
+}
